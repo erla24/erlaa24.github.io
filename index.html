@@ -1112,14 +1112,13 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 // ===== OPTIMASI OFFLINE-FIRST CACHE =====
-// Langsung mengambil data lokal (cache) lintas sesi agar rendering instan (<100ms)
 let products = JSON.parse(localStorage.getItem('mp_products')) || defaultProducts;
 let cart = JSON.parse(localStorage.getItem('mp_cart')) || [];
 let currentUserData = JSON.parse(localStorage.getItem('mp_user_data')) || null;
 let currentFilter = 'All';
 let editingProductId = null;
 let authUser = null;
-let unsubscribeProducts = null; // Menghindari multiple realtime snapshot listeners (Memory Leak / UI Lag)
+let unsubscribeProducts = null;
 
 // Path collection yang strictly sesuai RULE 1
 const productsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'products');
@@ -1168,24 +1167,27 @@ async function checkAndSeedProducts() {
 function setupRealtimeProducts() {
     if (!auth.currentUser) return; // Pelindung RULE 3
 
-    // Bersihkan listener sebelumnya jika ada (mencegah memory leak & UI freeze)
     if (unsubscribeProducts) {
         unsubscribeProducts();
     }
 
     unsubscribeProducts = onSnapshot(productsCollectionRef, (snapshot) => {
-        // Jika data kosong, lakukan seeding di latar belakang secara asinkron
         if (snapshot.empty) {
             checkAndSeedProducts();
             return;
         }
 
-        products = [];
+        // Ambil produk lokal yang belum sinkron agar tetap dipertahankan saat memuat data online
+        const localProducts = products.filter(p => p.isLocal);
+
+        const onlineProducts = [];
         snapshot.forEach((doc) => {
-            products.push({ id: doc.id, ...doc.data() });
+            onlineProducts.push({ id: doc.id, ...doc.data() });
         });
+
+        // Gabungkan produk lokal yang belum sinkron dengan produk online
+        products = [...localProducts, ...onlineProducts];
         
-        // Simpan versi terbaru di lokal sebagai cache untuk pemuatan selanjutnya
         localStorage.setItem('mp_products', JSON.stringify(products));
 
         // Update status di UI
@@ -1203,7 +1205,6 @@ function setupRealtimeProducts() {
             statusEl.className = "status-badge connecting";
             statusEl.innerHTML = "🟡 Mode Offline (Menggunakan Cache)";
         }
-        // Walau offline, tetap tampilkan data cache yang ada
         displayProducts();
     });
 }
@@ -1277,7 +1278,6 @@ async function submitLogin() {
     currentUserData = { name: username, role: role };
     localStorage.setItem('mp_user_data', JSON.stringify(currentUserData));
     
-    // Simpan profil ke Firebase Database secara aman (Asinkron)
     if (auth.currentUser) {
         const userProfileRef = doc(db, 'artifacts', appId, 'users', auth.currentUser.uid, 'settings', 'profile');
         setDoc(userProfileRef, currentUserData).catch(e => console.error("Simpan profil awan ditunda:", e));
@@ -1312,7 +1312,6 @@ function displayProducts(list) {
     const toShow = list !== undefined ? list : (currentFilter === 'All' ? products : products.filter(p => p.category === currentFilter));
     productList.innerHTML = "";
 
-    // JIKA PRODUK KOSONG & SEDANG MENGHUBUNGKAN: Tampilkan skeleton loading yang interaktif & dinamis
     if (toShow.length === 0) {
         const statusEl = document.getElementById('connection-status');
         if (statusEl && statusEl.innerHTML.includes('Menghubungkan')) {
@@ -1346,12 +1345,13 @@ function displayProducts(list) {
         }
 
         const formattedPrice = typeof product.price === 'number' ? product.price.toLocaleString('id-ID') : product.price;
+        const localIndicator = product.isLocal ? ' <span style="font-size:0.75rem; color:#f39c12; font-weight:normal;">(Lokal)</span>' : '';
 
         card.innerHTML = `
             <img src="${product.img}" alt="${product.name}" onerror="handleImageError(this, '${product.category}')" class="clickable-img" onclick="openDetail('${product.id}')">
             <div>
                 <span class="product-category-badge">${product.category}</span>
-                <h3 class="clickable-title" onclick="openDetail('${product.id}')">${product.name}</h3>
+                <h3 class="clickable-title" onclick="openDetail('${product.id}')">${product.name}${localIndicator}</h3>
                 <p class="product-desc">${product.description || 'Tidak ada deskripsi produk.'}</p>
                 <div class="product-meta">
                     <small style="color:#64748b;">Toko: <strong>${product.penjual || 'Official Store'}</strong></small>
@@ -1543,9 +1543,33 @@ async function submitJual() {
         showToast('⚠️ Harga barang harus lebih dari Rp 0!', 'warning');
         return;
     }
-    
+
+    // MODIFIKASI: Jika Firebase Auth belum siap, gunakan offline fallback secara cerdas
     if (!auth.currentUser) {
-        showToast('⚠️ Koneksi aman belum terjalin, silakan tunggu beberapa saat!', 'warning');
+        const localId = "local_" + Date.now();
+        const newLocalProduct = {
+            id: localId,
+            name: nama,
+            price: harga,
+            img: foto || 'shopping.avif',
+            category: kategori,
+            description: deskripsi,
+            penjual: penjual,
+            createdAt: new Date().toISOString(),
+            isLocal: true // Tandai bahwa ini disimpan lokal
+        };
+        
+        products.unshift(newLocalProduct);
+        localStorage.setItem('mp_products', JSON.stringify(products));
+        displayProducts();
+        
+        toggleJual();
+        ['jual-nama','jual-harga','jual-kategori','jual-deskripsi','jual-foto'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.value = '';
+        });
+        
+        showToast(`🎉 Produk "${nama}" berhasil disimpan ke penyimpanan lokal (Mode Offline)!`, 'success');
         return;
     }
 
@@ -1568,8 +1592,8 @@ async function submitJual() {
         });
         showToast(`🎉 Produk "${nama}" berhasil disimpan secara online!`, 'success');
     } catch (e) {
-        console.error("Gagal menyimpan produk:", e);
-        showToast('❌ Gagal menyimpan produk online.', 'warning');
+        console.error("Gagal menyimpan produk online:", e);
+        showToast('❌ Gagal menyimpan produk online. Mencoba menyimpan lokal...', 'warning');
     }
 }
 
@@ -1594,10 +1618,6 @@ function openEdit(id) {
 
 async function submitEdit() {
     if (!editingProductId) return;
-    if (!auth.currentUser) {
-        showToast('⚠️ Koneksi aman terputus!', 'warning');
-        return;
-    }
 
     const nama = document.getElementById('edit-nama').value.trim();
     const hargaVal = parseInt(document.getElementById('edit-harga').value);
@@ -1612,6 +1632,24 @@ async function submitEdit() {
 
     if (hargaVal <= 0) {
         showToast('⚠️ Harga barang harus lebih dari Rp 0!', 'warning');
+        return;
+    }
+
+    const targetProduct = products.find(p => p.id === editingProductId);
+
+    // MODIFIKASI: Jika offline / belum terautentikasi / barang merupakan barang lokal
+    if (!auth.currentUser || (targetProduct && targetProduct.isLocal)) {
+        if (targetProduct) {
+            targetProduct.name = nama;
+            targetProduct.price = hargaVal;
+            targetProduct.category = kategori;
+            targetProduct.description = deskripsi;
+            targetProduct.img = foto || 'shopping.avif';
+            localStorage.setItem('mp_products', JSON.stringify(products));
+            displayProducts();
+        }
+        toggleEdit();
+        showToast(`✅ Perubahan "${nama}" berhasil disimpan di memori lokal!`, 'success');
         return;
     }
 
@@ -1636,20 +1674,30 @@ async function submitEdit() {
 
 async function deleteProduct() {
     if (!editingProductId) return;
-    if (!auth.currentUser) {
-        showToast('⚠️ Koneksi aman terputus!', 'warning');
-        return;
-    }
 
     const targetProduct = products.find(p => p.id === editingProductId);
     const productName = targetProduct ? targetProduct.name : "Produk";
+
+    // MODIFIKASI: Jika offline / belum terautentikasi / barang merupakan barang lokal
+    if (!auth.currentUser || (targetProduct && targetProduct.isLocal)) {
+        products = products.filter(p => p.id !== editingProductId);
+        localStorage.setItem('mp_products', JSON.stringify(products));
+        
+        cart = cart.filter(item => item.id !== editingProductId);
+        localStorage.setItem('mp_cart', JSON.stringify(cart));
+        updateCartCount();
+
+        displayProducts();
+        toggleEdit();
+        showToast(`🗑️ Produk "${productName}" berhasil dihapus dari memori lokal!`, 'success');
+        return;
+    }
 
     try {
         showToast('⏳ Menghapus dari server...', 'warning');
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'products', editingProductId);
         await deleteDoc(docRef);
         
-        // Hapus dari keranjang lokal jika ada
         cart = cart.filter(item => item.id !== editingProductId);
         localStorage.setItem('mp_cart', JSON.stringify(cart));
         updateCartCount();
@@ -1691,7 +1739,7 @@ function openQRIS() {
     
     rincianHTML += `
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1.5px solid #cbd5e1; margin-top: 10px; padding-top: 8px; font-size: 1rem; color: var(--text-main);">
+            <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1.5 solid #cbd5e1; margin-top: 10px; padding-top: 8px; font-size: 1rem; color: var(--text-main);">
                 <span>Total Tagihan:</span>
                 <span style="color: var(--success-dark);">Rp ${grandTotal.toLocaleString('id-ID')}</span>
             </div>
