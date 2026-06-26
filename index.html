@@ -1105,12 +1105,12 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, co
 
 // ===== DATA DEFAULT UNTUK SEEDING JIKA SERVER KOSONG =====
 const defaultProducts = [
-    { name: "Smartphone Honor Power 2", price: 1899999, img: "hp honor.jpg", category: "Smartphone", penjual: "Toko Elektronik Makmur", description: "Performa kelas atas dengan baterai tahan lama dan kamera superior. Cocok untuk profesional." },
-    { name: "Samsung Galaxy A55", price: 5499999, img: "samsung.jpg", category: "Smartphone", penjual: "Samsung Store", description: "Layar Super AMOLED 120Hz dengan desain premium dan sertifikasi IP67 anti air." },
-    { name: "iPhone 13 128GB", price: 9800000, img: "hp honor.jpg", category: "Smartphone", penjual: "iBox Official", description: "Chip A15 Bionic super cepat dengan kualitas perekaman video terbaik di kelasnya." },
-    { name: "Xiaomi Redmi Note 13", price: 2799999, img: "samsung.jpg", category: "Smartphone", penjual: "Xiaomi Store", description: "Layar bezel-less, baterai 5000mAh, dan fast charging. Raja di kelas menengah." },
-    { name: "Laptop Advan Workplus", price: 8999999, img: "advan.jpeg", category: "Laptop", penjual: "Advan Official", description: "Prosesor AMD Ryzen tangguh, RAM besar, cocok untuk mahasiswa dan pekerja kantoran." },
-    { name: "Asus VivoBook 14", price: 7499999, img: "advan.jpeg", category: "Laptop", penjual: "Asus Store", description: "Desain tipis, ringan dibawa kemana-mana, dan performa mulus untuk multitasking." }
+    { id: "default_prod_1", name: "Smartphone Honor Power 2", price: 1899999, img: "hp honor.jpg", category: "Smartphone", penjual: "Toko Elektronik Makmur", description: "Performa kelas atas dengan baterai tahan lama dan kamera superior. Cocok untuk profesional." },
+    { id: "default_prod_2", name: "Samsung Galaxy A55", price: 5499999, img: "samsung.jpg", category: "Smartphone", penjual: "Samsung Store", description: "Layar Super AMOLED 120Hz dengan desain premium dan sertifikasi IP67 anti air." },
+    { id: "default_prod_3", name: "iPhone 13 128GB", price: 9800000, img: "hp honor.jpg", category: "Smartphone", penjual: "iBox Official", description: "Chip A15 Bionic super cepat dengan kualitas perekaman video terbaik di kelasnya." },
+    { id: "default_prod_4", name: "Xiaomi Redmi Note 13", price: 2799999, img: "samsung.jpg", category: "Smartphone", penjual: "Xiaomi Store", description: "Layar bezel-less, baterai 5000mAh, dan fast charging. Raja di kelas menengah." },
+    { id: "default_prod_5", name: "Laptop Advan Workplus", price: 8999999, img: "advan.jpeg", category: "Laptop", penjual: "Advan Official", description: "Prosesor AMD Ryzen tangguh, RAM besar, cocok untuk mahasiswa dan pekerja kantoran." },
+    { id: "default_prod_6", name: "Asus VivoBook 14", price: 7499999, img: "advan.jpeg", category: "Laptop", penjual: "Asus Store", description: "Desain tipis, ringan dibawa kemana-mana, dan performa mulus untuk multitasking." }
 ];
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'marketpedia-group6-id';
