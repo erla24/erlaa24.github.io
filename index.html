@@ -59,6 +59,7 @@
             align-items: center;
             gap: 6px;
             font-weight: 600;
+            transition: all 0.3s ease;
         }
         .status-badge.connecting {
             color: var(--warning);
@@ -777,7 +778,7 @@
 <header>
     <div class="container header-content">
         <h1><a href="javascript:void(0)" onclick="location.reload();">MARKET<span>Pedia</span></a></h1>
-        <div id="connection-status" class="status-badge connecting">⏳ Menghubungkan ke Awan...</div>
+        <div id="connection-status" class="status-badge connecting" style="color: var(--warning)">⏳ Menghubungkan ke Awan...</div>
         <div class="search-container">
             <input type="text" id="search-input" placeholder="Cari produk di MarketPedia..." onkeyup="searchProduct()">
         </div>
@@ -1079,6 +1080,21 @@
     </div>
 </div>
 
+<!-- MODAL: KONFIRMASI MASUK KERANJANG -->
+<div id="confirm-cart-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="width:385px; text-align:center;">
+        <div class="modal-header">
+            <h3>🛒 Konfirmasi Keranjang</h3>
+            <button class="close-btn" onclick="closeConfirmCart()">✕</button>
+        </div>
+        <p id="confirm-cart-text" style="margin: 15px 0; color: var(--text-main); font-weight: 600; line-height: 1.6; font-size: 0.95rem;"></p>
+        <div style="display:flex; gap:12px; justify-content: center; margin-top: 22px;">
+            <button class="btn-secondary" style="flex:1; padding: 11px;" onclick="closeConfirmCart()">Tidak</button>
+            <button class="btn-primary" style="flex:1; padding: 11px;" onclick="confirmAddToCart()">Yakin</button>
+        </div>
+    </div>
+</div>
+
 <!-- TOAST NOTIFICATION -->
 <div id="toast" class="toast" style="display:none;"></div>
 
@@ -1119,6 +1135,7 @@ let currentFilter = 'All';
 let editingProductId = null;
 let authUser = null;
 let unsubscribeProducts = null;
+let pendingCartProductId = null; // Menyimpan id produk sementara sebelum dikonfirmasi
 
 // Path collection yang strictly sesuai RULE 1
 const productsCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'products');
@@ -1190,10 +1207,11 @@ function setupRealtimeProducts() {
         
         localStorage.setItem('mp_products', JSON.stringify(products));
 
-        // Update status di UI
+        // Update status di UI ke Berhasil Terhubung
         const statusEl = document.getElementById('connection-status');
         if (statusEl) {
             statusEl.className = "status-badge";
+            statusEl.style.color = "#2ecc71"; // Kembali ke warna hijau sukses
             statusEl.innerHTML = "🟢 Terhubung ke Awan";
         }
         
@@ -1202,7 +1220,8 @@ function setupRealtimeProducts() {
         console.error("Realtime fetch error:", error);
         const statusEl = document.getElementById('connection-status');
         if (statusEl) {
-            statusEl.className = "status-badge connecting";
+            statusEl.className = "status-badge";
+            statusEl.style.color = "#f1c40f"; // Kuning offline mode
             statusEl.innerHTML = "🟡 Mode Offline (Menggunakan Cache)";
         }
         displayProducts();
@@ -1314,7 +1333,7 @@ function displayProducts(list) {
 
     if (toShow.length === 0) {
         const statusEl = document.getElementById('connection-status');
-        if (statusEl && statusEl.innerHTML.includes('Menghubungkan')) {
+        if (statusEl && (statusEl.innerHTML.includes('Menghubungkan') || statusEl.innerHTML.includes('Memproses'))) {
             for (let i = 0; i < 6; i++) {
                 const skeletonCard = document.createElement('div');
                 skeletonCard.className = 'product-card skeleton';
@@ -1413,17 +1432,43 @@ function addToCart(productId) {
     const product = products.find(p => p.id === productId);
     if (!product) return;
 
-    const existingItem = cart.find(item => item.id === productId);
-    if (existingItem) {
-        existingItem.qty += 1;
-    } else {
-        cart.push({ ...product, qty: 1 });
+    // Set data produk yang ditunda untuk konfirmasi
+    pendingCartProductId = productId;
+    
+    const confirmTextEl = document.getElementById('confirm-cart-text');
+    if (confirmTextEl) {
+        confirmTextEl.innerText = `Apakah Anda yakin ingin memasukkan "${product.name}" ke dalam keranjang belanja?`;
     }
+    
+    const modal = document.getElementById('confirm-cart-modal');
+    if (modal) modal.style.display = 'flex';
+}
 
-    updateCartCount();
-    updateCartUI();
-    localStorage.setItem('mp_cart', JSON.stringify(cart));
-    showToast(`✅ "${product.name}" ditambahkan ke keranjang!`);
+function confirmAddToCart() {
+    if (!pendingCartProductId) return;
+    const productId = pendingCartProductId;
+    const product = products.find(p => p.id === productId);
+    
+    if (product) {
+        const existingItem = cart.find(item => item.id === productId);
+        if (existingItem) {
+            existingItem.qty += 1;
+        } else {
+            cart.push({ ...product, qty: 1 });
+        }
+
+        updateCartCount();
+        updateCartUI();
+        localStorage.setItem('mp_cart', JSON.stringify(cart));
+        showToast(`✅ "${product.name}" ditambahkan ke keranjang!`);
+    }
+    closeConfirmCart();
+}
+
+function closeConfirmCart() {
+    pendingCartProductId = null;
+    const modal = document.getElementById('confirm-cart-modal');
+    if (modal) modal.style.display = 'none';
 }
 
 function changeQty(index, offset) {
@@ -1544,7 +1589,7 @@ async function submitJual() {
         return;
     }
 
-    // MODIFIKASI: Jika Firebase Auth belum siap, gunakan offline fallback secara cerdas
+    // Jika Firebase Auth belum siap, simpan lokal secara instan (Mode Offline-Fallback)
     if (!auth.currentUser) {
         const localId = "local_" + Date.now();
         const newLocalProduct = {
@@ -1556,7 +1601,7 @@ async function submitJual() {
             description: deskripsi,
             penjual: penjual,
             createdAt: new Date().toISOString(),
-            isLocal: true // Tandai bahwa ini disimpan lokal
+            isLocal: true
         };
         
         products.unshift(newLocalProduct);
@@ -1569,7 +1614,7 @@ async function submitJual() {
             if(el) el.value = '';
         });
         
-        showToast(`🎉 Produk "${nama}" berhasil disimpan ke penyimpanan lokal (Mode Offline)!`, 'success');
+        showToast(`🎉 Produk "${nama}" disimpan lokal (Mode Hemat/Offline)!`, 'success');
         return;
     }
 
@@ -1637,7 +1682,6 @@ async function submitEdit() {
 
     const targetProduct = products.find(p => p.id === editingProductId);
 
-    // MODIFIKASI: Jika offline / belum terautentikasi / barang merupakan barang lokal
     if (!auth.currentUser || (targetProduct && targetProduct.isLocal)) {
         if (targetProduct) {
             targetProduct.name = nama;
@@ -1678,7 +1722,6 @@ async function deleteProduct() {
     const targetProduct = products.find(p => p.id === editingProductId);
     const productName = targetProduct ? targetProduct.name : "Produk";
 
-    // MODIFIKASI: Jika offline / belum terautentikasi / barang merupakan barang lokal
     if (!auth.currentUser || (targetProduct && targetProduct.isLocal)) {
         products = products.filter(p => p.id !== editingProductId);
         localStorage.setItem('mp_products', JSON.stringify(products));
@@ -1739,7 +1782,7 @@ function openQRIS() {
     
     rincianHTML += `
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1.5 solid #cbd5e1; margin-top: 10px; padding-top: 8px; font-size: 1rem; color: var(--text-main);">
+            <div style="display: flex; justify-content: space-between; font-weight: bold; border-top: 1.5px solid #cbd5e1; margin-top: 10px; padding-top: 8px; font-size: 1rem; color: var(--text-main);">
                 <span>Total Tagihan:</span>
                 <span style="color: var(--success-dark);">Rp ${grandTotal.toLocaleString('id-ID')}</span>
             </div>
@@ -1799,6 +1842,8 @@ window.deleteProduct = deleteProduct;
 window.openDetail = openDetail;
 window.closeDetail = closeDetail;
 window.addToCart = addToCart;
+window.confirmAddToCart = confirmAddToCart;
+window.closeConfirmCart = closeConfirmCart;
 window.changeQty = changeQty;
 window.removeFromCart = removeFromCart;
 window.toggleCart = toggleCart;
@@ -1822,17 +1867,34 @@ window.addEventListener('load', async () => {
     updateAuthUI();
     displayProducts();
 
-    // 2. DAFTARKAN LISTENER STATUS AUTENTIKASI TERLEBIH DAHULU (RULE 3)
+    // 2. TAMPILKAN VISUAL STATUS SIAP (CACHE) AGAR PENGGUNA TIDAK MERASA MACET
+    const statusEl = document.getElementById('connection-status');
+    if (statusEl) {
+        statusEl.className = "status-badge";
+        statusEl.style.color = "#3498db"; // Warna biru memproses instan
+        statusEl.innerHTML = "⚡ Memuat data instan...";
+    }
+
+    // Batas waktu toleransi jabat tangan koneksi awan (2.5 Detik Max)
+    const connectionTimeout = setTimeout(() => {
+        const currentStatus = document.getElementById('connection-status');
+        if (currentStatus && (currentStatus.innerHTML.includes('Memuat') || currentStatus.innerHTML.includes('Menghubungkan'))) {
+            currentStatus.className = "status-badge";
+            currentStatus.style.color = "#f1c40f"; // Warna kuning offline
+            currentStatus.innerHTML = "🟡 Mode Offline (Menggunakan Cache)";
+        }
+    }, 2500);
+
+    // 3. DAFTARKAN LISTENER STATUS AUTENTIKASI (RULE 3)
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             authUser = user;
             
-            // 3. AKTIFKAN DATABASE REALTIME HANYA SETELAH DIKONFIRMASI TERAUTENTIKASI (PENTING!)
+            // AKTIFKAN DATABASE REALTIME SECARA SEJAJAR
             setupRealtimeProducts();
 
             const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
             try {
-                // Fetch data profil asinkron tanpa mematikan UI utama
                 getDoc(profileRef).then((docSnap) => {
                     if (docSnap.exists()) {
                         currentUserData = docSnap.data();
@@ -1853,7 +1915,6 @@ window.addEventListener('load', async () => {
         } else {
             authUser = null;
             currentUserData = null;
-            // Jika logout, nonaktifkan listener database
             if (unsubscribeProducts) {
                 unsubscribeProducts();
                 unsubscribeProducts = null;
@@ -1862,8 +1923,22 @@ window.addEventListener('load', async () => {
         updateAuthUI();
     });
 
-    // 4. JALANKAN OTENTIKASI SECARA ASINKRON (NON-BLOCKING)
-    await initializeAppAuth();
+    // 4. JALANKAN PROSES OTENTIKASI SECARA PARALEL DENGAN RACE TIMEOUT
+    try {
+        await Promise.race([
+            initializeAppAuth(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000))
+        ]);
+        clearTimeout(connectionTimeout);
+    } catch (e) {
+        console.warn("Koneksi awal Firebase dialihkan ke mode hemat / offline fallback:", e);
+        const lateStatusEl = document.getElementById('connection-status');
+        if (lateStatusEl && (lateStatusEl.innerHTML.includes('Memuat') || lateStatusEl.innerHTML.includes('Menghubungkan'))) {
+            lateStatusEl.className = "status-badge";
+            lateStatusEl.style.color = "#f1c40f"; // Kuning offline mode
+            lateStatusEl.innerHTML = "🟡 Mode Offline (Menggunakan Cache)";
+        }
+    }
 });
 </script>
 
